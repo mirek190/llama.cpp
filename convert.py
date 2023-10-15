@@ -169,6 +169,8 @@ class Params:
             n_layer=next(i for i in itertools.count() if f"model.layers.{i}.self_attn.q_proj.weight" not in model)
         elif "model.layers.0.self_attn.W_pack.weight" in model:   # next: try baichuan naming
             n_layer=next(i for i in itertools.count() if f"model.layers.{i}.self_attn.W_pack.weight" not in model)
+        elif "model.layers.0.self_attn.q_proj.lora_A.default.weight" in model:   # next implementation
+            n_layer=next(i for i in itertools.count() if f"model.layers.{i}.self_attn.W_pack.weight" not in model)
         else:
             n_layer=next(i for i in itertools.count() if f"layers.{i}.attention.wq.weight" not in model)
 
