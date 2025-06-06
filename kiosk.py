@@ -295,14 +295,11 @@ class App:
             self.button_frame, text="Save Table", command=self.save_table)
         self.report_button = ttk.Button(
             self.button_frame, text="Generate Report", command=self.generate_report)
-        self.quit_button = ttk.Button(
-            self.button_frame, text="Quit", command=self.quit_application)
 
         self.refresh_button.pack(side="left", padx=5, pady=5)
         self.import_button.pack(side="left", padx=5, pady=5)
         self.save_button.pack(side="left", padx=5, pady=5)
         self.report_button.pack(side="left", padx=5, pady=5)
-        self.quit_button.pack(side="left", padx=5, pady=5)
 
         # Server credentials input fields
         self.ip_frame = ttk.Frame(self.button_frame)
@@ -842,10 +839,6 @@ class App:
             messagebox.showinfo("Success", f"Report saved to {path}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report:\n{e}")
-
-    # Quit
-    def quit_application(self):
-        self.root.destroy()
 
 
 # VNC Connection Helper
