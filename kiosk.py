@@ -14,7 +14,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.font import Font
 import tkinter.font as tkfont
-
 import paramiko
 import pexpect
 
