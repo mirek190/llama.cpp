@@ -1,11 +1,16 @@
 # Multimodal
 
-llama.cpp supports multimodal input via `libmtmd`. Currently, there are 2 tools support this feature:
+llama.cpp supports multimodal input via `libmtmd`. Currently, these tools support this feature:
 - [llama-cli](../tools/cli/README.md)
 - [llama-server](../tools/server/README.md) via OpenAI-compatible `/chat/completions` API
 - [llama-mtmd-cli](../tools/mtmd/README.md), for testing and development
 
 Currently, we support **image**, **audio** and **video** input.
+
+Generated-output modalities use the output-side OMTD path instead of MTMD.
+The first local generated-audio implementation is documented at
+[Higgs Audio v3](multimodal/higgs-audio-v3.md). The OMTD library design and its
+relationship to MTMD are documented at [Output Multimodal Runtime](omtd.md).
 
 To enable it, you can use one of the 2 methods below:
 

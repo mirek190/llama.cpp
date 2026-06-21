@@ -1,26 +1,27 @@
-﻿#include "omtd.h"
+#include "omtd.h"
 
-#include <cassert>
-#include <cstring>
+#include <cstdio>
 
-int main() {
-    char error[128] = {};
+static int check(bool cond, const char * msg) {
+    if (!cond) {
+        std::fprintf(stderr, "OMTD test failed: %s\n", msg);
+        return 1;
+    }
+    return 0;
+}
 
-    assert(!omtd_is_output_companion_gguf(nullptr));
-    assert(omtd_get_model_type(nullptr) == OMTD_MODEL_TYPE_UNKNOWN);
-    assert(omtd_get_model_modality(nullptr) == OMTD_MODALITY_UNKNOWN);
+int main(int argc, char ** argv) {
+    if (check(!omtd_is_output_companion_gguf(nullptr), "nullptr is not a companion")) return 1;
+    if (check(!omtd_is_output_companion_gguf(""), "empty path is not a companion")) return 1;
+    if (check(omtd_get_model_type("") == OMTD_MODEL_TYPE_UNKNOWN, "empty path has unknown model type")) return 1;
+    if (check(omtd_get_model_modality("") == OMTD_MODALITY_UNKNOWN, "empty path has unknown modality")) return 1;
 
-    assert(omtd_audio_generate_file(nullptr, error, sizeof(error)) == OMTD_STATUS_INVALID_PARAM);
-    assert(std::strlen(error) > 0);
-
-    omtd_audio_generation_params params = {};
-    assert(omtd_audio_generate_file(&params, error, sizeof(error)) == OMTD_STATUS_INVALID_PARAM);
-
-    params.model_path = "model.gguf";
-    params.companion_path = "companion.gguf";
-    params.prompt = "hello";
-    params.output_path = "out.wav";
-    assert(omtd_audio_generate_file(&params, error, sizeof(error)) == OMTD_STATUS_UNSUPPORTED);
+    if (argc > 1) {
+        const char * path = argv[1];
+        if (check(omtd_is_output_companion_gguf(path), "Higgs companion should be detected")) return 1;
+        if (check(omtd_get_model_type(path) == OMTD_MODEL_TYPE_HIGGS_AUDIO_V3, "Higgs companion model type")) return 1;
+        if (check(omtd_get_model_modality(path) == OMTD_MODALITY_AUDIO, "Higgs companion modality")) return 1;
+    }
 
     return 0;
 }

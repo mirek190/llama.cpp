@@ -3,6 +3,12 @@ This example demonstrates the Text To Speech feature. It uses a
 [model](https://www.outeai.com/blog/outetts-0.2-500m) from
 [outeai](https://www.outeai.com/).
 
+The top-level `tools/tts/tts.cpp` file is the `llama-tts` frontend. Model
+specific implementation files live in subdirectories:
+
+- `tools/tts/outetts/`: OuteTTS and WavTokenizer helper code.
+- `tools/tts/higgs_v3/`: Higgs Audio v3 helper code used through OMTD.
+
 ## Quickstart
 If you have built llama.cpp with SSL support you can simply run the
 following command and the required models will be downloaded automatically:
@@ -45,7 +51,7 @@ $ popd
 This model file is a PyTorch checkpoint (.ckpt) and we first need to convert it to
 huggingface format:
 ```console
-(venv) python tools/tts/convert_pt_to_hf.py \
+(venv) python tools/tts/outetts/convert_pt_to_hf.py \
     models/WavTokenizer-large-speech-75token/wavtokenizer_large_speech_320_24k.ckpt
 ...
 Model has been successfully converted and saved to models/WavTokenizer-large-speech-75token/model.safetensors
@@ -93,7 +99,7 @@ And the voice decoder model server can be started using:
 ./build/bin/llama-server -m ./models/wavtokenizer-large-75-f16.gguf --port 8021 --embeddings --pooling none
 ```
 
-Then we can run [tts-outetts.py](tts-outetts.py) to generate the audio.
+Then we can run [tts-outetts.py](outetts/tts-outetts.py) to generate the audio.
 
 First create a virtual environment for python and install the required
 dependencies (this in only required to be done once):
@@ -105,7 +111,7 @@ $ source venv/bin/activate
 
 And then run the python script using:
 ```conole
-(venv) python ./tools/tts/tts-outetts.py http://localhost:8020 http://localhost:8021 "Hello world"
+(venv) python ./tools/tts/outetts/tts-outetts.py http://localhost:8020 http://localhost:8021 "Hello world"
 spectrogram generated: n_codes: 90, n_embd: 1282
 converting to audio ...
 audio generated: 28800 samples

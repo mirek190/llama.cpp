@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,7 +30,8 @@ typedef enum omtd_modality {
 } omtd_modality;
 
 typedef enum omtd_model_type {
-    OMTD_MODEL_TYPE_UNKNOWN = 0,
+    OMTD_MODEL_TYPE_UNKNOWN        = 0,
+    OMTD_MODEL_TYPE_HIGGS_AUDIO_V3 = 1,
 } omtd_model_type;
 
 typedef enum omtd_status {
@@ -72,19 +73,22 @@ typedef struct omtd_audio_generation_params {
     bool flash_attn;
 } omtd_audio_generation_params;
 
-// Detects output-modality companion GGUF files. The OMTD framework patch only
-// defines the boundary; model-specific recognizers are added by backend patches.
+// Detects output-modality companion GGUF files. In v1 this recognizes
+// Higgs Audio v3 companion files via higgs_audio.format metadata.
 OMTD_API bool omtd_is_output_companion_gguf(const char * path);
 
 OMTD_API omtd_model_type omtd_get_model_type(const char * path);
 OMTD_API omtd_modality   omtd_get_model_modality(const char * path);
 
-// Generate an audio file through an output-modality companion. The framework
-// returns OMTD_STATUS_UNSUPPORTED until a concrete audio backend is registered.
+// Generate an audio file through the selected output-modality companion.
+// V1 supports Higgs Audio v3 only.
 OMTD_API omtd_status omtd_audio_generate_file(
         const omtd_audio_generation_params * params,
         char * error,
         size_t error_size);
+
+// Compatibility CLI entry point used by existing Higgs TTS tools.
+OMTD_API int omtd_higgs_tts_main(int argc, char ** argv);
 
 #ifdef __cplusplus
 }

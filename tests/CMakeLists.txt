@@ -143,6 +143,7 @@ if (NOT WIN32)
         ARGS https://huggingface.co/ggml-org/vocabs ${PROJECT_SOURCE_DIR}/models/ggml-vocabs
     )
 endif()
+
 if (LLAMA_LLGUIDANCE)
     llama_build_and_test(test-grammar-llguidance.cpp ARGS ${PROJECT_SOURCE_DIR}/models/ggml-vocab-llama-bpe.gguf)
 endif ()
@@ -200,6 +201,13 @@ llama_build_and_test(test-chat-auto-parser.cpp WORKING_DIRECTORY ${PROJECT_SOURC
 llama_build_and_test(test-chat-template.cpp)
 llama_build_and_test(test-json-partial.cpp)
 llama_build_and_test(test-log.cpp)
+llama_build_and_test(test-higgs-sampler.cpp)
+llama_build_and_test(test-higgs-gguf.cpp)
+llama_build_and_test(test-higgs-codec.cpp)
+llama_build_and_test(test-higgs-encode-reference.cpp)
+llama_build_and_test(test-omtd.cpp)
+target_include_directories(test-omtd PRIVATE ${PROJECT_SOURCE_DIR}/tools/omtd)
+target_link_libraries(test-omtd PRIVATE omtd)
 llama_build_and_test(
     test-peg-parser.cpp
     peg-parser/simple-tokenize.cpp

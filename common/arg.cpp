@@ -2190,6 +2190,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ"));
     add_opt(common_arg(
+        {"--omtd"}, "FILE",
+        "path to an output multimodal companion file. see tools/omtd/README.md",
+        [](common_params & params, const std::string & value) {
+            params.omtd.path = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_OMTD"));
+    add_opt(common_arg(
         {"-mmu", "--mmproj-url"}, "URL",
         "URL to a multimodal projector file. see tools/mtmd/README.md",
         [](common_params & params, const std::string & value) {

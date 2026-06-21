@@ -3,6 +3,7 @@
 #include "arg.h"
 #include "console.h"
 #include "fit.h"
+#include "omtd.h"
 // #include "log.h"
 
 #include "server-common.h"
@@ -12,6 +13,7 @@
 #include <array>
 #include <atomic>
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -202,7 +204,7 @@ struct cli_context {
 
     // TODO: support remote files in the future (http, https, etc)
     std::string load_input_file(const std::string & fname, bool is_media) {
-        std::ifstream file = fs_open_ifstream(fname, std::ios::binary);
+        std::ifstream file(fname, std::ios::binary);
         if (!file) {
             return "";
         }
@@ -361,10 +363,23 @@ static std::vector<std::pair<std::string, size_t>> auto_completion_callback(std:
 
 static constexpr size_t FILE_GLOB_MAX_RESULTS = 100;
 
+static bool has_omtd_audio_arg(int argc, char ** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--omtd") == 0 || std::strcmp(argv[i], "--higgs-audio") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // satisfies -Wmissing-declarations
 int llama_cli(int argc, char ** argv);
 
 int llama_cli(int argc, char ** argv) {
+    if (has_omtd_audio_arg(argc, argv)) {
+        return omtd_higgs_tts_main(argc, argv);
+    }
+
     common_params params;
 
     params.verbosity = LOG_LEVEL_ERROR; // by default, less verbose logs

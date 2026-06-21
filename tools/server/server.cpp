@@ -10,10 +10,16 @@
 #include "fit.h"
 #include "llama.h"
 #include "log.h"
+#include "omtd.h"
 
 #include <atomic>
 #include <clocale>
+#include <chrono>
+#include <cstring>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
 #include <signal.h>
 #include <thread> // for std::thread::hardware_concurrency
 
@@ -23,6 +29,7 @@
 
 static std::function<void(int)> shutdown_handler;
 static std::atomic_flag is_terminating = ATOMIC_FLAG_INIT;
+static std::mutex higgs_speech_mutex;
 
 static inline void signal_handler(int signal) {
     if (is_terminating.test_and_set()) {
@@ -67,6 +74,178 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
             SRV_ERR("got another exception: %s | while handling exception: %s\n", e.what(), message.c_str());
             res->data = "Internal Server Error";
         }
+        return res;
+    };
+}
+
+static std::string server_tmp_wav_path() {
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const auto tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    const auto path = std::filesystem::temp_directory_path() /
+            ("llama-higgs-speech-" + std::to_string(now) + "-" + std::to_string(tid) + ".wav");
+    return path.string();
+}
+
+static bool read_binary_file(const std::string & path, std::string & data) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    data.assign(
+            std::istreambuf_iterator<char>(in),
+            std::istreambuf_iterator<char>());
+    return in.good() || in.eof();
+}
+
+static std::string omtd_audio_path_from_request(const json & body, const common_params & params) {
+    if (body.contains("omtd") && body["omtd"].is_string()) {
+        return body["omtd"].get<std::string>();
+    }
+    if (body.contains("higgs_audio") && body["higgs_audio"].is_string()) {
+        return body["higgs_audio"].get<std::string>();
+    }
+    if (const char * env = std::getenv("LLAMA_OMTD")) {
+        if (env[0] != '\0') {
+            return env;
+        }
+    }
+    if (const char * env = std::getenv("LLAMA_HIGGS_AUDIO")) {
+        if (env[0] != '\0') {
+            return env;
+        }
+    }
+    if (!params.omtd.path.empty()) {
+        return params.omtd.path;
+    }
+    if (!params.model.path.empty()) {
+        const auto sibling = std::filesystem::path(params.model.path).parent_path() / "higgs-audio-f16.gguf";
+        if (std::filesystem::exists(sibling)) {
+            return sibling.string();
+        }
+    }
+    return "";
+}
+
+static server_http_context::handler_t make_higgs_speech_handler(const common_params & params) {
+    return [&params](const server_http_req & req) -> server_http_res_ptr {
+        auto res = std::make_unique<server_http_res>();
+
+        if (params.model.path.empty()) {
+            res->status = 400;
+            res->data = safe_json_to_str({{"error", format_error_response("Higgs speech requires llama-server to run with a backbone model via -m", ERROR_TYPE_INVALID_REQUEST)}});
+            return res;
+        }
+
+        json body;
+        try {
+            body = json::parse(req.body);
+        } catch (const std::exception & e) {
+            res->status = 400;
+            res->data = safe_json_to_str({{"error", format_error_response(std::string("request body must be JSON: ") + e.what(), ERROR_TYPE_INVALID_REQUEST)}});
+            return res;
+        }
+
+        if (!body.contains("input") || !body["input"].is_string() || body["input"].get<std::string>().empty()) {
+            res->status = 400;
+            res->data = safe_json_to_str({{"error", format_error_response("\"input\" must be a non-empty string", ERROR_TYPE_INVALID_REQUEST)}});
+            return res;
+        }
+
+        const std::string response_format = body.value("response_format", "wav");
+        if (response_format != "wav") {
+            res->status = 400;
+            res->data = safe_json_to_str({{"error", format_error_response("only response_format=\"wav\" is supported for Higgs speech", ERROR_TYPE_INVALID_REQUEST)}});
+            return res;
+        }
+
+        const std::string omtd_audio_path = omtd_audio_path_from_request(body, params);
+        if (omtd_audio_path.empty()) {
+            res->status = 400;
+            res->data = safe_json_to_str({{"error", format_error_response("missing OMTD companion GGUF; set request field \"omtd\", \"higgs_audio\", LLAMA_OMTD, or LLAMA_HIGGS_AUDIO", ERROR_TYPE_INVALID_REQUEST)}});
+            return res;
+        }
+
+        const std::string out_path = server_tmp_wav_path();
+        const std::string input = body["input"].get<std::string>();
+        const std::string device = body.value("device", std::string());
+        const std::string omtd_backend = body.value("omtd_backend", body.value("higgs_backend", std::string("auto")));
+        const std::string rvq_backend = body.value("omtd_rvq_backend", body.value("rvq_backend", std::string("auto")));
+        const std::string vocoder_backend = body.value("omtd_vocoder_backend", body.value("dac_backend", std::string("CPU")));
+        const std::string ref_voice = body.value("ref_voice", body.value("ref_wav", std::string()));
+        const std::string ref_text = body.value("ref_text", body.value("ref_text_file", std::string()));
+
+        auto optional_float = [&](const char * key, const float def) {
+            return body.contains(key) && body[key].is_number() ? body[key].get<float>() : def;
+        };
+        auto optional_int = [&](const char * key, const int def) {
+            return body.contains(key) && body[key].is_number_integer() ? body[key].get<int>() : def;
+        };
+
+        omtd_audio_generation_params gen_params = {};
+        gen_params.model_path = params.model.path.c_str();
+        gen_params.companion_path = omtd_audio_path.c_str();
+        gen_params.prompt = input.c_str();
+        gen_params.output_path = out_path.c_str();
+        gen_params.device = device.c_str();
+        gen_params.omtd_backend = omtd_backend.c_str();
+        gen_params.rvq_backend = rvq_backend.c_str();
+        gen_params.vocoder_backend = vocoder_backend.c_str();
+        gen_params.ref_voice_path = ref_voice.c_str();
+        gen_params.ref_text_path = ref_text.c_str();
+        gen_params.n_gpu_layers = params.n_gpu_layers;
+        gen_params.n_ctx = params.n_ctx;
+        gen_params.duration_seconds = optional_float("duration", 0.0f);
+        gen_params.max_duration_seconds = optional_float("max_duration", 0.0f);
+        gen_params.temperature = body.contains("temperature") ? optional_float("temperature", -1.0f) : optional_float("temp", -1.0f);
+        gen_params.top_k = optional_int("top_k", 0);
+        gen_params.seed = optional_int("seed", 0);
+        gen_params.seed_is_set = body.contains("seed") && body["seed"].is_number_integer();
+        gen_params.stream_stride = optional_int("stream_stride", -1);
+        gen_params.stream_holdback = optional_int("stream_holdback", -1);
+        gen_params.stream_wav = body.value("stream_wav", false);
+        gen_params.raw_prompt = body.value("raw_prompt", false);
+        gen_params.verbose = true;
+        gen_params.flash_attn = body.value("flash_attn", true);
+
+        omtd_status status = OMTD_STATUS_RUNTIME_ERROR;
+        char omtd_error[512] = {};
+        {
+            std::lock_guard<std::mutex> lock(higgs_speech_mutex);
+#if defined(_WIN32)
+            _putenv_s("LLAMA_HIGGS_CACHE_MODEL", "1");
+            _putenv_s("LLAMA_HIGGS_CACHE_CONTEXT", "1");
+            _putenv_s("LLAMA_HIGGS_CACHE_COMPANION", "1");
+#else
+            setenv("LLAMA_HIGGS_CACHE_MODEL", "1", 1);
+            setenv("LLAMA_HIGGS_CACHE_CONTEXT", "1", 1);
+            setenv("LLAMA_HIGGS_CACHE_COMPANION", "1", 1);
+#endif
+            status = omtd_audio_generate_file(&gen_params, omtd_error, sizeof(omtd_error));
+        }
+        if (status != OMTD_STATUS_SUCCESS) {
+            std::error_code ec;
+            std::filesystem::remove(out_path, ec);
+            res->status = 500;
+            const std::string message = omtd_error[0] ? omtd_error : "OMTD speech generation failed";
+            res->data = safe_json_to_str({{"error", format_error_response(message, ERROR_TYPE_SERVER)}});
+            return res;
+        }
+
+        std::string wav;
+        if (!read_binary_file(out_path, wav)) {
+            std::error_code ec;
+            std::filesystem::remove(out_path, ec);
+            res->status = 500;
+            res->data = safe_json_to_str({{"error", format_error_response("failed to read generated Higgs WAV", ERROR_TYPE_SERVER)}});
+            return res;
+        }
+
+        std::error_code ec;
+        std::filesystem::remove(out_path, ec);
+
+        res->content_type = "audio/wav";
+        res->headers["Content-Disposition"] = "attachment; filename=\"speech.wav\"";
+        res->data = std::move(wav);
         return res;
     };
 }
@@ -201,6 +380,13 @@ int llama_server(int argc, char ** argv) {
     ctx_http.post("/responses",                ex_wrapper(routes.post_responses_oai));
     ctx_http.post("/v1/audio/transcriptions",  ex_wrapper(routes.post_transcriptions_oai));
     ctx_http.post("/audio/transcriptions",     ex_wrapper(routes.post_transcriptions_oai));
+    if (is_router_server) {
+        ctx_http.post("/v1/audio/speech",       ex_wrapper(models_routes->proxy_post));
+        ctx_http.post("/audio/speech",          ex_wrapper(models_routes->proxy_post));
+    } else {
+        ctx_http.post("/v1/audio/speech",       ex_wrapper(make_higgs_speech_handler(params)));
+        ctx_http.post("/audio/speech",          ex_wrapper(make_higgs_speech_handler(params)));
+    }
     ctx_http.post("/v1/messages",              ex_wrapper(routes.post_anthropic_messages)); // anthropic messages API
     ctx_http.post("/infill",                   ex_wrapper(routes.post_infill));
     ctx_http.post("/embedding",                ex_wrapper(routes.post_embeddings)); // legacy
